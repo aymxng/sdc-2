@@ -49,3 +49,69 @@
 
 
 This project is an excellent opportunity to demonstrate your skills in web API development, asynchronous programming, and AI model integration. Good luck!
+
+
+## Implementation
+
+This application generates concept sketches using Stable Diffusion through the provided ImageGenerator.
+
+### Setup
+
+Use Python 3.11 and uv.
+
+From the repository root:
+
+```bash
+cd assignment
+uv sync --locked
+```
+
+Configure `STABILITY_API_KEY` as an environment variable or in a `.env` file in the repository root.
+
+Start the API:
+
+```bash
+uv run --locked uvicorn app:app --reload
+```
+
+Open http://127.0.0.1:8000/docs to use the API.
+
+### Generate an image
+
+Send a POST request to `/images` with a JSON body:
+
+```json
+{
+  "subject": "A small solar-powered greenhouse",
+  "setting": "a mountain village",
+  "viewpoint": "isometric",
+  "details": "glass panels, a wooden frame and rainwater collection"
+}
+```
+
+The application combines these fields into a custom prompt. The provided ImageGenerator adds its sketch template and sends the request to Stability AI.
+
+The endpoint returns HTTP 202 with an `image_id`, a processing status and an `image_url`.
+
+### Retrieve an image
+
+Send a GET request to `/image/{image_id}` using the returned ID.
+
+Possible responses:
+
+- 202: Image generation is still processing.
+- 200: The generated PNG image is returned.
+- 500: Image generation failed.
+- 404: The image ID was not found.
+
+Invalid input returns HTTP 422. If the Stability API key is missing, POST `/images` returns HTTP 503.
+
+### Design decisions
+
+FastAPI BackgroundTasks is used to run the synchronous image generator without making the initial HTTP request wait for image generation.
+
+Image statuses are stored in memory, and generated PNG files are saved in `assignment/generated_images`.
+
+This implementation uses a single server process. Running jobs are not preserved across restarts, but successfully saved PNG files remain available as long as the files are retained.
+
+Redis and GPT-based profanity checking were not implemented because they are optional for this assignment.
