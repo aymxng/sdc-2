@@ -6,9 +6,11 @@ from uuid import uuid4
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, BackgroundTasks, HTTPException
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 from image_generator import ImageGenerator
+from gpt_service import GPTService
 
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
@@ -52,6 +54,14 @@ def build_prompt(request: ImageRequest) -> str:
     return prompt
 
 
+# Check the prompt for profanity using the provided GPT service
+def check_profanity(prompt: str) -> bool:
+    prompt_file = Path(__file__).resolve().parent / "profanity_prompt.txt"
+    instructions = prompt_file.read_text(encoding="utf-8")
+    service = GPTService(os.environ["OPENAI_API_KEY"], instructions)
+    return service.contains_profanity(prompt)
+
+
 # Generate and save the image in the background
 def gen_image_task(image_id: str, prompt: str):
     try:
@@ -73,10 +83,22 @@ def gen_image_task(image_id: str, prompt: str):
 async def create_image(request: ImageRequest, background_tasks: BackgroundTasks):
     if not os.getenv("STABILITY_API_KEY"):
         raise HTTPException(status_code=503, detail="Stability API key is missing")
+    if not os.getenv("OPENAI_API_KEY"):
+        raise HTTPException(status_code=503, detail="OpenAI API key is missing")
+
+    prompt = build_prompt(request)
+    try:
+        flagged = await run_in_threadpool(check_profanity, prompt)
+    except Exception as exc:
+        logging.exception("Profanity check failed")
+        raise HTTPException(status_code=503, detail="Profanity check unavailable") from exc
+
+    if flagged:
+        raise HTTPException(status_code=400, detail="Prompt contains profanity")
 
     image_id = uuid4().hex
     image_jobs[image_id] = "processing"
-    background_tasks.add_task(gen_image_task, image_id, build_prompt(request))
+    background_tasks.add_task(gen_image_task, image_id, prompt)
     return {"image_id": image_id, "status": "processing", "image_url": f"/image/{image_id}"}
 
 

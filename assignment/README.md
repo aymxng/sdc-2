@@ -34,7 +34,6 @@
    - Develop an endpoint for users to retrieve their generated images using an image ID.
    - Implement appropriate responses for different image statuses (e.g., processing, ready, not found).
 
-
 #### Deliverables:
 - Complete source code of the FastAPI application.
 - A README or documentation detailing the API usage, setup instructions, and any important decisions made during development.
@@ -47,17 +46,16 @@
 #### Tips:
 - Start with a basic FastAPI setup and gradually integrate the image generation features.
 
-
 This project is an excellent opportunity to demonstrate your skills in web API development, asynchronous programming, and AI model integration. Good luck!
 
 
 ## Implementation
 
-This application generates concept sketches using Stable Diffusion through the provided ImageGenerator.
+This application generates concept sketches using Stable Diffusion through the provided ImageGenerator. It also uses the provided GPTService for optional profanity checking before starting image generation.
 
 ### Setup
 
-Use Python 3.11 and uv.
+Use Python 3.11 or newer and uv.
 
 From the repository root:
 
@@ -66,7 +64,9 @@ cd assignment
 uv sync --locked
 ```
 
-Configure `STABILITY_API_KEY` as an environment variable or in a `.env` file in the repository root.
+Configure both `OPENAI_API_KEY` and `STABILITY_API_KEY` as environment variables or in a local `.env` file in the repository root.
+
+API keys must not be included in the source code or committed to Git. The `.env` file is excluded through `.gitignore`.
 
 Start the API:
 
@@ -91,7 +91,29 @@ Send a POST request to `/images` with a JSON body:
 
 The application combines these fields into a custom prompt. The provided ImageGenerator adds its sketch template and sends the request to Stability AI.
 
-The endpoint returns HTTP 202 with an `image_id`, a processing status and an `image_url`.
+Before image generation, the prompt is checked for profanity using GPTService.
+
+If the prompt passes the check, the endpoint starts a background task and returns HTTP 202 with an `image_id`, a processing status and an `image_url`.
+
+Example response:
+
+```json
+{
+  "image_id": "example123",
+  "status": "processing",
+  "image_url": "/image/example123"
+}
+```
+
+### Profanity checking
+
+The application uses the provided GPTService with `gpt-4o-mini` to check user prompts for inappropriate language.
+
+The instructions for the GPT service are stored in `profanity_prompt.txt`.
+
+If the prompt is flagged, the request is rejected with HTTP 400 and image generation is not started.
+
+If the GPT service is unavailable, the endpoint returns HTTP 503.
 
 ### Retrieve an image
 
@@ -104,14 +126,36 @@ Possible responses:
 - 500: Image generation failed.
 - 404: The image ID was not found.
 
-Invalid input returns HTTP 422. If the Stability API key is missing, POST `/images` returns HTTP 503.
+Additional POST `/images` responses:
+
+- 400: The prompt contains profanity.
+- 422: Invalid request data.
+- 503: An API key is missing or the profanity check is unavailable.
 
 ### Design decisions
 
 FastAPI BackgroundTasks is used to run the synchronous image generator without making the initial HTTP request wait for image generation.
 
+The GPT-based profanity check runs in a thread pool to avoid blocking the FastAPI event loop.
+
 Image statuses are stored in memory, and generated PNG files are saved in `assignment/generated_images`.
 
 This implementation uses a single server process. Running jobs are not preserved across restarts, but successfully saved PNG files remain available as long as the files are retained.
 
-Redis and GPT-based profanity checking were not implemented because they are optional for this assignment.
+API keys are loaded from environment variables and are never hardcoded in the application.
+
+Redis was not implemented because it is optional for this assignment.
+
+### Testing
+
+Run the existing automated tests from the assignment directory:
+
+```bash
+uv run --locked python -m unittest discover -s ../tests -v
+```
+
+The image generation and retrieval endpoints can also be tested using the interactive API documentation at `/docs`.
+
+Background processing, image saving and retrieval can be tested with a mocked ImageGenerator without using Stability AI credits.
+
+A successful live image generation request requires a valid Stability AI API key with sufficient balance.
